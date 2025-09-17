@@ -2,14 +2,17 @@ import pandas as pd
 import sys
 import os
 
+
 def load_stock_data(ticker: str, input_folder: str = 'DATA') -> pd.DataFrame:
-    """Load stock OHLCV data from a CSV file, ignoring the first numerical index column and Adj Close, and sort by Datetime."""
+    """Load stock OHLCV data from a CSV file, ignoring the first numerical index column and Adj Close, sort by Datetime, and remove duplicates."""
     input_path = os.path.join(input_folder, f"{ticker}.csv")
     # Load CSV, parse 'Datetime' as dates, drop the first column (numerical index) and 'Adj Close'
     df = pd.read_csv(input_path, parse_dates=['Datetime'])
     df = df.drop(columns=[df.columns[0], 'Adj Close']).set_index('Datetime')
     # Sort by Datetime index to ensure chronological order
     df = df.sort_index()
+    # Remove duplicate Datetime indices, keeping the first occurrence
+    df = df.drop_duplicates(keep='first')
     return df
 
 def calculate_previous_close(df: pd.DataFrame) -> pd.DataFrame:
@@ -28,15 +31,29 @@ def calculate_previous_close(df: pd.DataFrame) -> pd.DataFrame:
             df.loc[first_idx, 'Prev_Day_Close'] = close
     return df
 
+# def detect_gap_ups(df: pd.DataFrame) -> pd.DataFrame:
+#     """Identify gap ups only for the first candle of each day where open > previous day's last close."""
+#     # Initialize GAPUP as False
+#     df['GAPUP'] = False
+#     # Get the Datetime indices of the first candles per day
+#     first_candles_idx = df.groupby('Date').head(1).index
+#     # Valid comparison: only first candles, where Open > Prev_Day_Close, and Prev_Day_Close not NaN
+#     valid_comparison = df.index.isin(first_candles_idx) & (df['Open'] > df['Prev_Day_Close']) & (~df['Prev_Day_Close'].isna())
+#     df.loc[valid_comparison, 'GAPUP'] = True
+#     return df
+
 def detect_gap_ups(df: pd.DataFrame) -> pd.DataFrame:
-    """Identify gap ups only for the first candle of each day where open > previous day's last close."""
-    # Initialize GAPUP as False
+    """Identify gap ups only for the first candle of each day where open > previous day's last close, and calculate gap amount in dollars."""
+    # Initialize GAPUP as False and GAPAMOUNT as 0
     df['GAPUP'] = False
+    df['GAPAMOUNT'] = 0.0
     # Get the Datetime indices of the first candles per day
     first_candles_idx = df.groupby('Date').head(1).index
     # Valid comparison: only first candles, where Open > Prev_Day_Close, and Prev_Day_Close not NaN
     valid_comparison = df.index.isin(first_candles_idx) & (df['Open'] > df['Prev_Day_Close']) & (~df['Prev_Day_Close'].isna())
     df.loc[valid_comparison, 'GAPUP'] = True
+    # Calculate gap amount in dollars for gap-up candles (Open - Prev_Day_Close)
+    df.loc[valid_comparison, 'GAPAMOUNT'] = (df['Open'] - df['Prev_Day_Close']).round(2)
     return df
 
 def calculate_gap_percentage(df: pd.DataFrame) -> pd.DataFrame:
